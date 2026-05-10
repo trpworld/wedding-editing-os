@@ -52,8 +52,8 @@ router.post("/submissions", async (req, res, next) => {
       }
     }
 
-    // 4. Trigger background processing
-    queue.addJob({ projectId });
+    // 4. Trigger background processing (fire and forget — do NOT await)
+    queue.startDownloadJob({ projectId }, projectsDir).catch(console.error);
 
     // 5. Send success back to client immediately!
     res.json({ 
