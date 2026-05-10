@@ -72,3 +72,4 @@ Wedding_Project_2026-05-10/
 ├── project.json
 └── submission.zip
 ```
+# wedding-editing-os
