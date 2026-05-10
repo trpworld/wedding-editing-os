@@ -64,7 +64,6 @@ export default function RitualCard({
                           <input
                             value={song.url}
                             onChange={(event) => onUpdateSong(ritual.en, song.id, { url: event.target.value, error: "", loading: false })}
-                            onBlur={() => onFetchMetadata(ritual.en, song.id)}
                             placeholder={language === "bn" ? "YouTube বা Spotify লিংক পেস্ট করুন" : "Paste YouTube or Spotify song link"}
                             className="min-h-14 w-full rounded-xl border border-gold/20 bg-ink/70 px-4 text-base text-pearl outline-none transition focus:border-gold"
                           />
