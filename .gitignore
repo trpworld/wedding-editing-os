@@ -1,0 +1,14 @@
+node_modules/
+.venv/
+.npm-cache/
+.env
+.DS_Store
+
+frontend/.next/
+frontend/out/
+
+backend/storage/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

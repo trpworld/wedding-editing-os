@@ -1,0 +1,30 @@
+const rituals = [
+  "Mehendi",
+  "Ashirbad",
+  "Morning Special Moments",
+  "Briddhi",
+  "Jol Sowa",
+  "Gaye Holud",
+  "Venue Video",
+  "Borjatri",
+  "Bor Boron",
+  "Bride Special Moments",
+  "Family Group Moments",
+  "Bostro Daan",
+  "Saat Paak",
+  "Pan Pata Sorano",
+  "Hosto Bondhon",
+  "Sindur Daan",
+  "Couple Special Moments",
+  "Bidai",
+  "Bodhu Boron",
+  "Bhat Kapor",
+  "Venue Entry",
+  "Group Video",
+  "Food Section",
+  "Dance",
+  "Audience Moments",
+  "Bashor Ghor"
+];
+
+module.exports = { rituals };
