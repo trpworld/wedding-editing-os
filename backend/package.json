@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "postinstall": "pip3 install -U yt-dlp || python3 -m pip install -U yt-dlp || echo 'yt-dlp install skipped'"
   },
   "dependencies": {
     "archiver": "^7.0.1",
