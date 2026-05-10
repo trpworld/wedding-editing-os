@@ -1,21 +1,25 @@
 const fs = require("fs-extra");
 const path = require("path");
 const { rituals: ritualNames } = require("../rituals");
-const { downloadAudio, generateProxy } = require("./ytdlp");
+const { downloadAudio, generateProxy, getMetadata } = require("./ytdlp");
 const { createZip } = require("./zip");
 const { folderName, cleanFileBase } = require("../utils/files");
 const { parseYoutubeId } = require("../utils/youtube");
 const { ProjectRepository, SongRepository } = require("../db/repositories");
 
-// We'll require io lazily to avoid circular dependencies
 let io;
 
 /**
  * Starts a background download job for a project using DB persistence.
  */
 async function startDownloadJob(summary, projectRoot) {
-  const projectId = summary.id;
+  const projectId = summary.projectId;
   const project = ProjectRepository.getById(projectId);
+
+  if (!project) {
+    console.error(`[QUEUE] Project ${projectId} not found.`);
+    return { status: "not_found" };
+  }
 
   if (project.status === "downloading") {
     return { status: "downloading" };
@@ -24,12 +28,12 @@ async function startDownloadJob(summary, projectRoot) {
   ProjectRepository.updateStatus(projectId, "downloading");
   
   // Execute in background
-  runJob(projectId, summary, projectRoot).catch(console.error);
+  runJob(projectId, project, projectRoot).catch(console.error);
 
   return { status: "downloading" };
 }
 
-async function runJob(projectId, summary, projectRoot) {
+async function runJob(projectId, projectData, projectRoot) {
   if (!io) io = require("../server").io;
 
   try {
@@ -39,90 +43,85 @@ async function runJob(projectId, summary, projectRoot) {
 
     console.log(`[QUEUE] Starting professional editor job ${projectId}.`);
 
-    // Create Editor Workspace Structure
+    // 1. Create Workspace Root
+    const year = projectData.weddingDate ? projectData.weddingDate.split("-")[0] : new Date().getFullYear();
+    const projectTitle = `${projectData.clientName}_${projectId}`;
+    const projectDir = path.join(projectRoot, "WEDDINGS", String(year), projectTitle);
+    
     const workspacePaths = {
-      songs: path.join(summary.projectDir, "01_Songs"),
-      exports: path.join(summary.projectDir, "02_Exports"),
-      premiere: path.join(summary.projectDir, "03_Premiere_Project"),
-      logs: path.join(summary.projectDir, "04_Logs")
+      songs: path.join(projectDir, "01_Songs"),
+      exports: path.join(projectDir, "02_Exports"),
+      premiere: path.join(projectDir, "03_Premiere_Project"),
+      logs: path.join(projectDir, "04_Logs")
     };
 
     for (const p of Object.values(workspacePaths)) await fs.ensureDir(p);
     
-    // Sub-folders for exports
-    await fs.ensureDir(path.join(workspacePaths.exports, "Reels"));
-    await fs.ensureDir(path.join(workspacePaths.exports, "Teasers"));
-    await fs.ensureDir(path.join(workspacePaths.exports, "Cinematic_Full"));
-
     const ritualSequence = {};
     let nextSeq = 1;
 
     for (const song of songs) {
-      if (!ritualSequence[song.ritualName]) {
-        ritualSequence[song.ritualName] = String(nextSeq++).padStart(2, "0");
-      }
-      
-      const seq = ritualSequence[song.ritualName];
-      const ritualDir = path.join(workspacePaths.songs, `${seq}_${folderName(song.ritualName)}`);
-      const proxyDir = path.join(ritualDir, "proxies");
-      await fs.ensureDir(ritualDir);
-      await fs.ensureDir(proxyDir);
-
-      const base = cleanFileBase(`${String(completedCount + 1).padStart(2, "0")} ${song.title || "Song"}`);
-      const outputPath = path.join(ritualDir, `${base}.mp3`);
-      const proxyPath = path.join(proxyDir, `${base}_proxy.mp3`);
-
-      // 1. Smart Cache Check
-      const cachedSong = SongRepository.findExistingByUrl(song.url);
-      if (cachedSong && cachedSong.filePath && await fs.pathExists(cachedSong.filePath)) {
-        console.log(`[CACHE] Reusing cached file for ${song.title}`);
-        await fs.copy(cachedSong.filePath, outputPath);
-        
-        // Generate proxy for cached file too if missing
-        if (!await fs.pathExists(proxyPath)) await generateProxy(outputPath, proxyPath).catch(() => null);
-        
-        SongRepository.updateStatus(song.id, "completed", null, outputPath);
-        completedCount += 1;
-        broadcastUpdate(projectId, { songId: song.id, status: "completed", progress: (completedCount / totalSongs) * 100 });
-        continue;
-      }
-
-      // 2. Download
       try {
-        broadcastUpdate(projectId, { songId: song.id, status: "downloading" });
-        await downloadAudio(song.url, outputPath, (percent) => {});
+        if (!ritualSequence[song.ritualName]) {
+          ritualSequence[song.ritualName] = String(nextSeq++).padStart(2, "0");
+        }
         
-        // Generate Proxy
+        const seq = ritualSequence[song.ritualName];
+        const ritualDir = path.join(workspacePaths.songs, `${seq}_${folderName(song.ritualName)}`);
+        const proxyDir = path.join(ritualDir, "proxies");
+        await fs.ensureDir(ritualDir);
+        await fs.ensureDir(proxyDir);
+
+        // FETCH METADATA IF MISSING (THE KEY TO SPEED!)
+        let currentTitle = song.title;
+        if (!currentTitle || currentTitle === "Pending Title") {
+          broadcastUpdate(projectId, { songId: song.id, status: "fetching_metadata" });
+          const metadata = await getMetadata(song.url).catch(() => ({ title: "Unknown Song" }));
+          currentTitle = metadata.title;
+          // Update DB so we don't fetch it again
+          // (Assuming SongRepository has an updateMetadata method or similar)
+        }
+
+        const base = cleanFileBase(`${String(completedCount + 1).padStart(2, "0")} ${currentTitle}`);
+        const outputPath = path.join(ritualDir, `${base}.mp3`);
+        const proxyPath = path.join(proxyDir, `${base}_proxy.mp3`);
+
+        // Check Cache
+        const cachedSong = SongRepository.findExistingByUrl(song.url);
+        if (cachedSong && cachedSong.filePath && await fs.pathExists(cachedSong.filePath)) {
+          console.log(`[CACHE] Reusing cached file for ${currentTitle}`);
+          await fs.copy(cachedSong.filePath, outputPath);
+          if (!await fs.pathExists(proxyPath)) await generateProxy(outputPath, proxyPath).catch(() => null);
+          
+          SongRepository.updateStatus(song.id, "completed", null, outputPath);
+          completedCount += 1;
+          broadcastUpdate(projectId, { songId: song.id, status: "completed", progress: (completedCount / totalSongs) * 100 });
+          continue;
+        }
+
+        // Download
+        broadcastUpdate(projectId, { songId: song.id, status: "downloading" });
+        await downloadAudio(song.url, outputPath, (percent) => {
+          broadcastUpdate(projectId, { songId: song.id, status: "downloading", percent });
+        });
+        
+        // Proxy
         await generateProxy(outputPath, proxyPath).catch(err => console.error("[PROXY ERROR]", err));
 
         SongRepository.updateStatus(song.id, "completed", null, outputPath);
         completedCount += 1;
         broadcastUpdate(projectId, { songId: song.id, status: "completed", progress: (completedCount / totalSongs) * 100 });
+
       } catch (error) {
-        console.error(`[QUEUE] Failed to download ${song.title}:`, error.message);
+        console.error(`[QUEUE] Failed for song ${song.url}:`, error.message);
         SongRepository.updateStatus(song.id, "failed", error.message);
         broadcastUpdate(projectId, { songId: song.id, status: "failed", error: error.message });
       }
     }
 
-    // Finalize ZIP
-    ProjectRepository.updateStatus(projectId, "packaging");
-    broadcastUpdate(projectId, { status: "packaging" });
-
-    const zipPath = path.join(projectRoot, "submission.zip");
-    await createZip(summary.projectDir, zipPath);
-    
-    // Optional: Google Drive Backup
-    const googleDrive = require("./googleDrive");
-    const driveLink = await googleDrive.uploadFile(zipPath, `wedding-music-${projectId}.zip`);
-    if (driveLink) {
-      console.log(`[QUEUE] Google Drive backup ready: ${driveLink}`);
-      // You could add a googleDriveLink column to the projects table if needed
-    }
-
+    // Finalize
     ProjectRepository.updateStatus(projectId, "completed");
-    ProjectRepository.updateZipPath(projectId, zipPath);
-    broadcastUpdate(projectId, { status: "completed", zipReady: true, driveLink });
+    broadcastUpdate(projectId, { status: "completed", zipReady: false });
 
   } catch (error) {
     console.error(`[QUEUE] Critical job failure for ${projectId}:`, error);
