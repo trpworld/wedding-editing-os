@@ -8,6 +8,7 @@ frontend/.next/
 frontend/out/
 
 backend/storage/
+backend/bin/
 
 npm-debug.log*
 yarn-debug.log*

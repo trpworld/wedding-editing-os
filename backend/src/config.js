@@ -14,7 +14,7 @@ module.exports = {
   retentionDays: Number(process.env.PROJECT_RETENTION_DAYS || 14),
   maxFileMb: Number(process.env.MAX_FILE_MB || 50),
   enableYtdlp: process.env.ENABLE_YTDLP !== "false",
-  ytdlpPath: process.env.YTDLP_PATH || "yt-dlp",
+  ytdlpPath: process.env.YTDLP_PATH || path.join(rootDir, "bin", "yt-dlp"),
   ffmpegPath: process.env.FFMPEG_PATH || "ffmpeg",
   rootDir,
   storageDir,
